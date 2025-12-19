@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>ปฏิทินยืมเครื่อง (ฟรี)</title>
+
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  margin: 20px;
+  background: #f7f9fc;
+  color: #333;
+}
+
+.header { display: flex; gap: 10px; margin-bottom: 15px; }
+select { padding: 6px 10px; border-radius: 6px; }
+
+.container {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr;
+  gap: 20px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 10px;
+}
+th {
+  background: #4f7cff;
+  color: white;
+  padding: 10px;
+}
+td {
+  border: 1px solid #e5e7eb;
+  height: 110px;
+  padding: 6px;
+  vertical-align: top;
+  cursor: pointer;
+  position: relative;
+}
+td:hover { background: #f1f5ff; }
+
+.day {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  font-weight: bold;
+}
+.farmer {
+  margin-top: 28px;
+  background: #e8f0ff;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.today { background: #fff1f2; }
+.selected { outline: 2px solid #4f7cff; }
+
+.panel {
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+}
+.panel h3 { margin-top: 0; color: #4f7cff; }
+.panel label { display: block; margin-top: 10px; }
+.panel input {
+  width: 100%;
+  padding: 7px;
+  margin-top: 4px;
+}
+</style>
+
+</head>
+<body>
+
+<div class="header">
+  <label>ปี:</label>
+  <select id="yearSelect"></select>
+
+  <label>เดือน:</label>
+  <select id="monthSelect"></select>
+</div>
+
+<div class="container">
+
+<table>
+  <thead>
+    <tr>
+      <th>อา.</th><th>จ.</th><th>อ.</th>
+      <th>พ.</th><th>พฤ.</th><th>ศ.</th><th>ส.</th>
+    </tr>
+  </thead>
+  <tbody id="calendarBody"></tbody>
+</table>
+
+<div class="panel">
+  <h3 id="panelDate">เลือกวันที่</h3>
+
+  <label>ชื่อเกษตรกร</label>
+  <input id="farmerName" disabled>
+
+  <label>วันยื่นคำร้อง</label>
+  <input id="borrowDate" disabled>
+
+  <label>วันเพาะปลูก</label>
+  <input id="plantDate" disabled>
+
+  <label>วันเก็บเกี่ยว</label>
+  <input id="harvestDate" disabled>
+</div>
+
+</div>
+
+<script>
+/* ========== CONFIG ========== */
+const CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vTBGwUd65F_hbJmqGHeO9nPLtTxHbVeFa9BFOAn8yEvdJtHtUUR_7vvcowvIyFmnW2Fh-dr3CJ0G_Sl/pub?output=csv";
+
+/* ========== GLOBAL ========== */
+const monthNames = [
+  "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน",
+  "พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม",
+  "กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"
+];
+
+const today = new Date();
+const yearSelect = document.getElementById("yearSelect");
+const monthSelect = document.getElementById("monthSelect");
+const calendarBody = document.getElementById("calendarBody");
+
+let sheetData = {};
+let selectedKey = "";
+
+/* ========== LOAD CSV ========== */
+async function loadCSV() {
+  const res = await fetch(CSV_URL);
+  const text = await res.text();
+  const rows = text.split("\n").map(r => r.split(","));
+
+  rows.slice(1).forEach(r => {
+    const name = r[0].trim();
+    const borrow = r[1]?.trim();
+    const plant = r[2]?.trim();
+    const harvest = r[3]?.trim();
+
+    if (!borrow) return;
+
+    const parts = borrow.split(" ")[0].split("/");
+    const y = parseInt(parts[2]) - 543;
+    const m = parts[1].padStart(2, "0");
+    const d = parts[0].padStart(2, "0");
+    const key = `${y}-${m}-${d}`;
+
+    sheetData[key] = { name, borrow, plant, harvest };
+  });
+}
+
+/* ========== INIT SELECT ========== */
+for (let y = today.getFullYear()-2; y <= today.getFullYear()+2; y++) {
+  const o = document.createElement("option");
+  o.value = y; o.text = y+543;
+  if (y === today.getFullYear()) o.selected = true;
+  yearSelect.appendChild(o);
+}
+
+monthNames.forEach((nm,i) => {
+  const o = document.createElement("option");
+  o.value=i; o.text=nm;
+  if (i===today.getMonth()) o.selected=true;
+  monthSelect.appendChild(o);
+});
+
+yearSelect.onchange = renderCalendar;
+monthSelect.onchange = renderCalendar;
+
+/* ========== RENDER CALENDAR ========== */
+function renderCalendar() {
+  calendarBody.innerHTML = "";
+  let day=1;
+
+  const y = +yearSelect.value;
+  const m = +monthSelect.value;
+  const firstDay = new Date(y, m, 1).getDay();
+  const totalDays = new Date(y, m+1, 0).getDate();
+
+  let dateCounter = 1;
+
+  for (let w=0; w<6; w++) {
+    const tr = document.createElement("tr");
+
+    for (let d=0; d<7; d++) {
+      const td = document.createElement("td");
+
+      if ((w===0 && d < firstDay) || dateCounter > totalDays) {
+        td.innerHTML = "";
+      } else {
+        const key = `${y}-${m+1}-${dateCounter}`;
+
+        td.innerHTML = `<span class="day">${dateCounter}</span>`;
+
+        if (sheetData[key]) {
+          td.innerHTML +=
+            `<div class="farmer">${sheetData[key].name}</div>`;
+        }
+
+        td.dataset.key = key;
+        td.onclick = selectDay;
+
+        const isToday =
+          dateCounter === today.getDate() &&
+          m === today.getMonth() &&
+          y === today.getFullYear();
+
+        if (isToday) td.classList.add("today");
+
+        dateCounter++;
+      }
+      tr.appendChild(td);
+    }
+
+    calendarBody.appendChild(tr);
+  }
+}
+
+/* ========== SELECT DAY ========== */
+function selectDay() {
+  selectedKey = this.dataset.key;
+  const panelDate = document.getElementById("panelDate");
+  const fName = document.getElementById("farmerName");
+  const bDate = document.getElementById("borrowDate");
+  const pDate = document.getElementById("plantDate");
+  const hDate = document.getElementById("harvestDate");
+
+  panelDate.innerText = selectedKey;
+
+  if (sheetData[selectedKey]) {
+    const d = sheetData[selectedKey];
+    fName.value = d.name;
+    bDate.value = d.borrow;
+    pDate.value = d.plant;
+    hDate.value = d.harvest;
+  } else {
+    fName.value = "";
+    bDate.value = "";
+    pDate.value = "";
+    hDate.value = "";
+  }
+}
+
+/* ========== START ========== */
+loadCSV().then(renderCalendar);
+
+</script>
+
+</body>
+</html>
